@@ -82,6 +82,32 @@ export interface ExplanationData {
   scientific_context: string;
 }
 
+export interface CarbonBiomassEstimate {
+  aboveground_biomass_mgha: number;
+  belowground_biomass_mgha: number;
+  total_biomass_mgha: number;
+  carbon_stock_tcha: number;
+  co2_equivalent_tco2eha: number;
+  vcm_valuation_usdha: number;
+  biomass_category: string;
+  sar_derivation_note: string;
+  optical_derivation_note: string;
+  ipcc_tier_alignment: string;
+}
+
+export interface BotanicalDiagnosticProfile {
+  family_name: string;
+  common_name: string;
+  representative_taxa: string[];
+  leaf_morphology: string;
+  bark_stem_anatomy: string;
+  ecological_keystone_role: string;
+  ethnobotany_timber: string;
+  conservation_status: string;
+  image_url: string;
+  radar_signature: string;
+}
+
 export interface AnalyzeResponse {
   region_id: string;
   plot_id: string | null;
@@ -95,6 +121,8 @@ export interface AnalyzeResponse {
   top_feature_importances: FeatureImportanceItem[];
   validation_metric: ValidationMetric;
   explanation: ExplanationData;
+  biomass_carbon?: CarbonBiomassEstimate;
+  botanical_profile?: BotanicalDiagnosticProfile;
 }
 
 export interface TechnicalModelDetails {

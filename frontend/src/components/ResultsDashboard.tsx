@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { AnalyzeResponse } from '../types';
 import { ShieldCheck, Info, Check, AlertTriangle, Layers, BarChart3, HelpCircle } from 'lucide-react';
+import { CarbonBiomassCard } from './CarbonBiomassCard';
+import { BotanicalProfileCard } from './BotanicalProfileCard';
+import { getClientBotanicalProfile } from '../services/botanyCatalog';
 
 interface ResultsDashboardProps {
   result: AnalyzeResponse;
@@ -20,6 +23,22 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({
   const isKali = result.region_id === 'kali';
   const prediction = result.prediction;
   const observed = result.observed;
+
+  const defaultClassName = isKali ? prediction.dominant_family : prediction.land_cover_class;
+  const [selectedClass, setSelectedClass] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedClass(defaultClassName || null);
+  }, [result.plot_id, result.region_id, defaultClassName]);
+
+  const activeClassName = selectedClass || defaultClassName || 'other family';
+  const botanicalProfile = result.botanical_profile && (!selectedClass || selectedClass.toLowerCase() === defaultClassName?.toLowerCase())
+    ? result.botanical_profile
+    : getClientBotanicalProfile(activeClassName);
+
+  const candidateClasses = (isKali ? prediction.family_probabilities : prediction.class_probabilities)?.map(
+    (item) => item.class_name
+  ) || [];
 
   const isFamilyMatch =
     observed?.dominant_family &&
@@ -121,6 +140,19 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({
 
       </div>
 
+      {/* Carbon Stock & Biomass Intelligence Card */}
+      {result.biomass_carbon && (
+        <CarbonBiomassCard biomass={result.biomass_carbon} regionId={result.region_id} />
+      )}
+
+      {/* Botanical Diagnostic Profile & Herbarium Plate Card */}
+      <BotanicalProfileCard
+        profile={botanicalProfile}
+        candidateClasses={candidateClasses}
+        selectedClassName={activeClassName}
+        onSelectClass={(cls) => setSelectedClass(cls)}
+      />
+
       {/* Class Probability Distribution Breakdown */}
       <div className="glass-panel p-5 rounded-xl border-white/[0.08]">
         <div className="flex items-center justify-between mb-4">
@@ -130,28 +162,42 @@ export const ResultsDashboard: React.FC<ResultsDashboardProps> = ({
               {isKali ? 'Candidate Plant Family Probabilities' : 'Land Cover Class Probabilities'}
             </h3>
           </div>
-          <span className="text-xs font-mono text-slate-400">SOFTMAX OUTPUT</span>
+          <span className="text-[11px] font-mono text-forest-400/80">Click any class to view botanical profile</span>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {(isKali ? prediction.family_probabilities : prediction.class_probabilities)?.map((item) => {
             const pct = Math.round(item.probability * 100);
             const isTop =
               (isKali && item.class_name === prediction.dominant_family) ||
               (!isKali && item.class_name === prediction.land_cover_class);
+            const isSelected = activeClassName.toLowerCase() === item.class_name.toLowerCase();
+
             return (
-              <div key={item.class_name} className="text-xs font-mono">
-                <div className="flex justify-between items-center mb-1">
-                  <span className={`${isTop ? 'font-bold text-forest-300' : 'text-slate-300'}`}>
-                    {item.class_name} {isTop ? '★' : ''}
+              <div
+                key={item.class_name}
+                onClick={() => setSelectedClass(item.class_name)}
+                className={`text-xs font-mono p-2.5 rounded-lg cursor-pointer transition-all border ${
+                  isSelected
+                    ? 'bg-forest-950/70 border-forest-500/50 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
+                    : 'bg-surface-secondary/40 border-white/[0.04] hover:border-forest-500/30 hover:bg-surface-secondary/80'
+                }`}
+              >
+                <div className="flex justify-between items-center mb-1.5">
+                  <span className={`flex items-center gap-1.5 ${isSelected ? 'font-bold text-forest-300' : 'text-slate-300'}`}>
+                    <span>{item.class_name}</span>
+                    {isTop && <span className="text-[10px] px-1.5 py-0.2 rounded bg-forest-500/20 text-forest-400 font-normal">TOP PREDICTION</span>}
+                    {isSelected && !isTop && <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-normal">PREVIEWING</span>}
                   </span>
                   <span className="text-slate-400 font-bold">{(item.probability * 100).toFixed(1)}%</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-surface-secondary overflow-hidden border border-white/[0.04]">
+                <div className="w-full h-2 rounded-full bg-slate-800/80 overflow-hidden border border-white/[0.04]">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${
                       isTop
                         ? 'bg-gradient-to-r from-forest-500 to-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]'
+                        : isSelected
+                        ? 'bg-gradient-to-r from-teal-500 to-emerald-400'
                         : 'bg-slate-600/70'
                     }`}
                     style={{ width: `${Math.max(pct, 2)}%` }}

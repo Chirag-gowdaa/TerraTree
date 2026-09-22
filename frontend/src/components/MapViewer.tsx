@@ -26,7 +26,8 @@ export const MapViewer: React.FC<MapViewerProps> = ({
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const [basemap, setBasemap] = useState<'dark' | 'satellite'>('dark');
 
-  const darkTileUrl = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  const CARTO_KEY = import.meta.env.VITE_CARTO_API_KEY || 'cb1_3sh8_1_6ee28b1256700960db8704e8';
+  const darkTileUrl = `https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`;
   const satTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 

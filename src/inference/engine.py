@@ -7,9 +7,10 @@ from typing import Dict, List, Optional, Any, Tuple
 from src.inference.schemas import (
     RegionSummary, Coordinate, ProbabilityItem, FeatureImportanceItem,
     PredictionResult, ObservedTruth, ValidationMetric, AnalyzeResponse,
-    TechnicalModelDetails
+    TechnicalModelDetails, CarbonBiomassEstimate, BotanicalDiagnosticProfile
 )
 from src.data.data_loader import data_loader, FEATURE_DESCRIPTIONS
+from src.data.botany_catalog import get_botanical_profile
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 MODELS_DIR = os.path.join(BASE_DIR, "dashboard", "models")
@@ -160,6 +161,84 @@ class InferenceEngine:
         else:
             raise ValueError(f"Unsupported region: {region_id}")
 
+    def _compute_carbon_biomass(self, region_id: str, features: Dict[str, float], predicted_class: str) -> CarbonBiomassEstimate:
+        vh_db = float(features.get("VH", -12.0))
+        vv_db = float(features.get("VV", -7.0))
+        ndvi = float(features.get("NDVI", 0.75))
+        ndvire = float(features.get("NDVIre", 0.55))
+
+        sigma0_vh = 10.0 ** (vh_db / 10.0)
+
+        if region_id == "kali":
+            agb_base = 210.0 * ((sigma0_vh / 0.05) ** 0.45) * ((max(0.1, ndvi) / 0.75) ** 0.6)
+            agb = float(np.clip(agb_base, 80.0, 360.0))
+            root_ratio = 0.24
+            bgb = agb * root_ratio
+            total_biomass = agb + bgb
+            carbon_stock = total_biomass * 0.475
+            co2e = carbon_stock * 3.667
+            vcm_value = co2e * 18.50
+            
+            if agb >= 260.0:
+                biomass_class = "Old-Growth Climax High-Biomass Canopy"
+            elif agb >= 180.0:
+                biomass_class = "Mature Continuous Moist Deciduous Canopy"
+            else:
+                biomass_class = "Secondary Regenerating Forest Stand"
+                
+            sar_note = f"Sentinel-1 C-SAR VH volume scattering ({vh_db:.2f} dB) captures branchwood and stem volume."
+            opt_note = f"Sentinel-2 optical greenness (NDVI: {ndvi:.3f}, NDVIre: {ndvire:.3f}) scales canopy leaf area index."
+            
+        else:
+            is_mangrove = "mangrove" in predicted_class.lower()
+            is_water = "water" in predicted_class.lower()
+            
+            if is_water:
+                agb = 0.0
+                bgb = 0.0
+                total_biomass = 0.0
+                carbon_stock = 0.0
+                co2e = 0.0
+                vcm_value = 0.0
+                biomass_class = "Tidal Aquatic Intertidal Zone (Zero Terrestrial Biomass)"
+                sar_note = "Near total specular reflection extinction in open water."
+                opt_note = "High NDWI absorption, near-zero chlorophyll reflectance."
+            elif is_mangrove:
+                agb_base = 165.0 * ((sigma0_vh / 0.04) ** 0.5) * ((max(0.1, ndvi) / 0.70) ** 0.7)
+                agb = float(np.clip(agb_base, 70.0, 260.0))
+                root_ratio = 0.38
+                bgb = agb * root_ratio
+                total_biomass = agb + bgb
+                carbon_stock = total_biomass * 0.475
+                co2e = carbon_stock * 3.667
+                vcm_value = co2e * 24.00
+                biomass_class = "Dense Halophytic Mangrove Climax (High Blue Carbon Sink)"
+                sar_note = f"Intense double-bounce dihedral reflection from stilt root network (VH: {vh_db:.2f} dB)."
+                opt_note = f"High chlorophyll greenness (NDVI: {ndvi:.3f}) amidst saline mudflat background."
+            else:
+                agb = 35.0 * max(0.1, ndvi)
+                bgb = agb * 0.20
+                total_biomass = agb + bgb
+                carbon_stock = total_biomass * 0.475
+                co2e = carbon_stock * 3.667
+                vcm_value = co2e * 15.00
+                biomass_class = "Fringe Scrub / Alluvial Littoral Buffer"
+                sar_note = f"Surface roughness Bragg scattering with low volume backscatter ({vh_db:.2f} dB)."
+                opt_note = f"Moderate vegetation index (NDVI: {ndvi:.3f})."
+
+        return CarbonBiomassEstimate(
+            aboveground_biomass_mgha=round(agb, 1),
+            belowground_biomass_mgha=round(bgb, 1),
+            total_biomass_mgha=round(total_biomass, 1),
+            carbon_stock_tcha=round(carbon_stock, 1),
+            co2_equivalent_tco2eha=round(co2e, 1),
+            vcm_valuation_usdha=round(vcm_value, 2),
+            biomass_category=biomass_class,
+            sar_derivation_note=sar_note,
+            optical_derivation_note=opt_note,
+            ipcc_tier_alignment="IPCC Tier-2 Multi-Sensor Allometric Model (SAR VH + Optical MSI)"
+        )
+
     def _analyze_kali(self,
                       plot_id: Optional[str],
                       coords: Coordinate,
@@ -228,6 +307,11 @@ class InferenceEngine:
             "scientific_context": "Real botanical survey plots in KTR measure 50m x 10m with complete stem inventories (DBH >= 10cm). Predictions represent model estimates from 10m-20m multi-temporal satellite fusion."
         }
 
+        # Compute Carbon Biomass & Botanical Profile
+        biomass_carbon = self._compute_carbon_biomass("kali", features, pred_family)
+        botany_raw = get_botanical_profile(pred_family)
+        botanical_profile = BotanicalDiagnosticProfile(**botany_raw)
+
         return AnalyzeResponse(
             region_id="kali",
             plot_id=plot_id,
@@ -246,7 +330,9 @@ class InferenceEngine:
             features=features,
             top_feature_importances=top_importances,
             validation_metric=validation,
-            explanation=explanation
+            explanation=explanation,
+            biomass_carbon=biomass_carbon,
+            botanical_profile=botanical_profile
         )
 
     def _analyze_sundarbans(self,
@@ -313,6 +399,11 @@ class InferenceEngine:
             "scientific_context": "Sundarbans tidal flats exhibit complex spectral dynamics due to semi-diurnal tides. Fusing radar (SAR) with optical red-edge bands significantly reduces false positives between mudflats and low-stature mangrove fringe."
         }
 
+        # Compute Carbon Biomass & Botanical Profile
+        biomass_carbon = self._compute_carbon_biomass("sundarbans", features, pred_label)
+        botany_raw = get_botanical_profile(pred_label)
+        botanical_profile = BotanicalDiagnosticProfile(**botany_raw)
+
         return AnalyzeResponse(
             region_id="sundarbans",
             plot_id=plot_id,
@@ -329,7 +420,9 @@ class InferenceEngine:
             features=features,
             top_feature_importances=top_importances,
             validation_metric=validation,
-            explanation=explanation
+            explanation=explanation,
+            biomass_carbon=biomass_carbon,
+            botanical_profile=botanical_profile
         )
 
     def get_model_info(self) -> Dict[str, TechnicalModelDetails]:

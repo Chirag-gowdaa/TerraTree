@@ -77,6 +77,30 @@ class AnalyzeRequest(BaseModel):
     longitude: Optional[float] = Field(None, description="Custom longitude")
     custom_features: Optional[Dict[str, float]] = Field(None, description="Direct feature vector overrides")
 
+class CarbonBiomassEstimate(BaseModel):
+    aboveground_biomass_mgha: float
+    belowground_biomass_mgha: float
+    total_biomass_mgha: float
+    carbon_stock_tcha: float
+    co2_equivalent_tco2eha: float
+    vcm_valuation_usdha: float
+    biomass_category: str
+    sar_derivation_note: str
+    optical_derivation_note: str
+    ipcc_tier_alignment: str
+
+class BotanicalDiagnosticProfile(BaseModel):
+    family_name: str
+    common_name: str
+    representative_taxa: List[str]
+    leaf_morphology: str
+    bark_stem_anatomy: str
+    ecological_keystone_role: str
+    ethnobotany_timber: str
+    conservation_status: str
+    image_url: str
+    radar_signature: str
+
 class AnalyzeResponse(BaseModel):
     region_id: str
     plot_id: Optional[str] = None
@@ -90,6 +114,8 @@ class AnalyzeResponse(BaseModel):
     top_feature_importances: List[FeatureImportanceItem]
     validation_metric: ValidationMetric
     explanation: Dict[str, Any]
+    biomass_carbon: Optional[CarbonBiomassEstimate] = None
+    botanical_profile: Optional[BotanicalDiagnosticProfile] = None
 
 class TechnicalModelDetails(BaseModel):
     region_id: str
